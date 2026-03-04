@@ -11,6 +11,8 @@ Requirements satisfied:
 """
 
 import logging
+import os
+import socket
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +55,16 @@ class RecommendationEngine:
             except Exception as e:
                 logger.error(f"Failed to configure Gemini: {e}")
 
+    def _network_available(self) -> bool:
+        """Avoid blocking LLM calls when DNS/network is unavailable."""
+        if os.getenv("MEDI_DISABLE_LLM", "0").strip() == "1":
+            return False
+        try:
+            socket.getaddrinfo("generativelanguage.googleapis.com", 443)
+            return True
+        except OSError:
+            return False
+
     def _build_prompt(
         self,
         symptoms: str,
@@ -66,7 +78,7 @@ class RecommendationEngine:
         return (
             "Դուք բժշկական օգնական եք և պատասխանում եք միայն հայերենով։\n"
             "Խնդրում ենք չանել վերջնական ախտորոշում և չնշանակել դեղորայք։\n"
-            "Օգտագործեք զգուշավո�� ձևակերպումներ՝ «հնարավոր է», «կարող է լինել»։\n\n"
+            "Օգտագործեք զգուշավոր ձևակերպումներ՝ «հնարավոր է», «կարող է լինել»։\n\n"
             f"Օգտատիրոջ նկարագրած ախտանիշները:\n{symptoms}\n\n"
             f"Մշակված (մաքրված) ախտանիշներ:\n{cleaned}\n\n"
             f"Հնարավոր հիվանդություններ (համապատասխանությամբ):\n{diseases_text}\n\n"
@@ -92,11 +104,17 @@ class RecommendationEngine:
         """
         if not self._configured or not _GENAI:
             return self._fallback(symptoms, cleaned, diseases_text, specialist, context)
+        if not self._network_available():
+            logger.warning("Gemini unavailable (network/DNS). Using fallback recommendation.")
+            return self._fallback(symptoms, cleaned, diseases_text, specialist, context)
 
         prompt = self._build_prompt(symptoms, cleaned, diseases_text, specialist, context)
         try:
             model = genai.GenerativeModel(self._model_name)
-            result = model.generate_content(prompt)
+            result = model.generate_content(
+                prompt,
+                request_options={"timeout": 12},
+            )
             text = getattr(result, "text", "").strip()
             if not text:
                 return self._fallback(symptoms, cleaned, diseases_text, specialist, context)
@@ -118,7 +136,7 @@ class RecommendationEngine:
         parts = [
             "Հնարավոր է ներկայացնել հետևյալ մոտեցումը՝",
             "- Ուշադրություն դարձրեք ախտանիշների սկսելու ժամանակին և բնույթին։",
-            "- Նշեք ուղեկցող նշանները՝ ջերմություն, ��նչահեղձություն, ցավ։",
+            "- Նշեք ուղեկցող նշանները՝ ջերմություն, շնչահեղձություն, ցավ։",
             f"- Քննարկեք խնդիրը {specialist}-ի հետ և պլանավորեք զննություն։",
         ]
         guide = "\n".join(parts)

@@ -16,6 +16,7 @@ from backend.recommendation_engine import RecommendationEngine
 from backend.specialist_mapper import SpecialistMapper
 from backend.preprocessor import SymptomPreprocessor
 from backend.faiss_search import SymptomDiseaseIndexer
+from backend.doctor_directory import DoctorDirectory
 
 # Configure logging
 logging.basicConfig(
@@ -23,6 +24,16 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
+
+
+def _merge_predictions(pred_lists, top_k: int):
+    merged = {}
+    for preds in pred_lists:
+        for p in preds or []:
+            prev = merged.get(p.name)
+            if prev is None or float(p.score) > float(prev.score):
+                merged[p.name] = p
+    return sorted(merged.values(), key=lambda x: float(x.score), reverse=True)[:top_k]
 
 
 # Request/Response Models matching frontend expectations
@@ -46,6 +57,15 @@ class SpecialistInfo(BaseModel):
     match_score: float
     recommended_action: str | None = None
     urgency_note: str | None = None
+    doctors: list["DoctorInfo"] = []
+
+
+class DoctorInfo(BaseModel):
+    """Doctor profile shown to end users."""
+    name: str
+    clinic: str | None = None
+    phone: str | None = None
+    specialty: str | None = None
 
 
 class RecommendationResponse(BaseModel):
@@ -66,6 +86,7 @@ components = {
     "specialist_mapper": None,
     "recommendation_engine": None,
     "model_evaluator": None,
+    "doctor_directory": None,
 }
 
 
@@ -90,15 +111,25 @@ async def lifespan(app: FastAPI):
             settings.disease_specialist_csv
         )
         logger.info("Specialist mapper initialized")
+
+        components["doctor_directory"] = DoctorDirectory.from_csv(
+            settings.doctors_csv
+        )
+        logger.info("Doctor directory initialized")
         
         components["sdi"] = SymptomDiseaseIndexer(settings)
         logger.info("Symptom→Disease indexer initialized")
+        try:
+            components["sdi"].warmup()
+            logger.info("Symptom→Disease indexer warmed up")
+        except Exception as e:
+            logger.warning(f"Indexer warmup failed, lazy init will be used: {e}")
         
-        # ✅ FIXED: Pass specialist_mapper as third argument
         components["recommendation_engine"] = RecommendationEngine(
-            settings=settings,
-            retriever=None,
-            specialist_mapper=components["specialist_mapper"]
+            gemini_model_name=settings.gemini_model_name,
+            gemini_api_key=settings.gemini_api_key,
+            temperature=settings.gemini_temperature,
+            specialist_mapper=components["specialist_mapper"],
         )
         logger.info("Recommendation engine initialized")
         
@@ -188,9 +219,22 @@ async def recommend(payload: SymptomRequest) -> RecommendationResponse:
         # 2. Preprocess symptoms
         cleaned, symptom_list = components["preprocessor"].preprocess(symptoms)
 
-        # 3. Retrieve candidate diseases using FAISS symptom→disease indexer
+        # 3. Retrieve candidate diseases using multiple query variants
         settings = components["settings"]
-        preds = components["sdi"].predict(cleaned, top_k=settings.rag_top_k)
+        query_variants = [symptoms]
+        if cleaned and cleaned != symptoms:
+            query_variants.append(cleaned)
+        if symptom_list:
+            joined = " ".join(symptom_list).strip()
+            if joined and joined not in query_variants:
+                query_variants.append(joined)
+        candidate_pool_k = max(settings.rag_top_k * 3, 12)
+        pred_lists = [components["sdi"].predict(q, top_k=candidate_pool_k) for q in query_variants]
+        preds = _merge_predictions(pred_lists, top_k=max(1, settings.rag_top_k))
+        min_score = float(max(0.0, min(1.0, settings.similarity_threshold)))
+        strong_preds = [p for p in preds if float(p.score) >= min_score]
+        if strong_preds:
+            preds = strong_preds
 
         diseases_model = []
         for p in preds:
@@ -208,22 +252,36 @@ async def recommend(payload: SymptomRequest) -> RecommendationResponse:
         else:
             diseases_text = "\n".join([f"- {d.name_hy} (համապատասխանություն՝ {d.match_score:.2f})" for d in diseases_model])
 
-        # 4. Map diseases to specialist
-        specialist_name = components["specialist_mapper"].recommend(disease_names)
+        # 4. Map diseases to specialist (weighted by disease scores)
+        specialist_name = "Թերապևտ / Ընտանեկան բժիշկ"
+        if disease_names:
+            spec_map = components["specialist_mapper"].recommend_all(disease_names)
+            weighted = {}
+            for d in diseases_model:
+                sp = spec_map.get(d.name_hy, specialist_name)
+                weighted[sp] = weighted.get(sp, 0.0) + float(d.match_score)
+            if weighted:
+                specialist_name = max(weighted.items(), key=lambda x: x[1])[0]
+            else:
+                specialist_name = components["specialist_mapper"].recommend(disease_names)
         
         # 5. Retrieve RAG context from FAISS context index built from CSV
-        context = components["sdi"].retrieve_context(
-            query=cleaned,
-            top_k=settings.rag_top_k,
-            max_chars=settings.max_context_chars,
-        )
+        context = ""
+        for q in query_variants:
+            context = components["sdi"].retrieve_context(
+                query=q,
+                top_k=settings.rag_top_k,
+                max_chars=settings.max_context_chars,
+            )
+            if context:
+                break
 
         # 6. Generate AI response with retrieved context
         raw_response = components["recommendation_engine"].generate(symptoms, cleaned, diseases_text, specialist_name, context)
         safe_response = components["model_evaluator"].enforce(raw_response)
 
         # 7. Build specialist info
-        top_score = diseases_model[0].match_score if diseases_model else 0.6
+        top_score = diseases_model[0].match_score if diseases_model else 0.0
         specialists = [
             SpecialistInfo(
                 name_hy=specialist_name,
@@ -233,7 +291,16 @@ async def recommend(payload: SymptomRequest) -> RecommendationResponse:
                 recommended_action=(
                     "Խնդրում ենք անմիջապես դիմել շտապ օգնության" if urgency_level == "critical" else "Խնդրում ենք պլանավորել այցելություն մոտակա ժամանակ"
                 ),
-                urgency_note="Շտապ բժշկական օգնության կարիք" if urgency_level == "critical" else None
+                urgency_note="Շտապ բժշկական օգնության կարիք" if urgency_level == "critical" else None,
+                doctors=[
+                    DoctorInfo(
+                        name=doc.name,
+                        clinic=doc.clinic,
+                        phone=doc.phone,
+                        specialty=doc.specialty,
+                    )
+                    for doc in components["doctor_directory"].find_by_specialist(specialist_name, limit=4)
+                ],
             )
         ]
 
@@ -248,8 +315,27 @@ async def recommend(payload: SymptomRequest) -> RecommendationResponse:
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error in /api/recommend endpoint: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")
+        logger.exception(f"Error in /api/recommend endpoint: {e}")
+        return RecommendationResponse(
+            specialists=[
+                SpecialistInfo(
+                    name_hy="Թերապևտ / Ընտանեկան բժիշկ",
+                    description_hy="Ժամանակավոր տեխնիկական խնդիր է առաջացել։",
+                    diseases=[],
+                    match_score=0.0,
+                    recommended_action="Եթե վիճակը վատթարանում է, դիմեք շտապ օգնության",
+                    urgency_note=None,
+                    doctors=[],
+                )
+            ],
+            urgency_level="low",
+            confidence=0.0,
+            emergency_symptoms=[],
+            reasoning=(
+                "Ժամանակավոր տեխնիկական խնդիր է առաջացել տվյալների մշակման ընթացքում, "
+                "բայց խորհուրդ է տրվում դիմել համապատասխան մասնագետի։"
+            ),
+        )
 
 
 if __name__ == "__main__":

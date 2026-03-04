@@ -4,11 +4,15 @@ import axios from "axios";
 import InputBox from "../components/InputBox";
 import ResultCard from "../components/ResultCard";
 import EmergencyBanner from "../components/EmergencyBanner";
-import SOSButton from "../components/SOSButton";
 
 import MediHeader from "../assets/medi-header.png";
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+const API_BASE_URLS = [
+  import.meta.env.VITE_API_URL,
+  "http://127.0.0.1:8000",
+  "http://localhost:8000",
+  "",
+].filter((v, i, arr) => typeof v === "string" && v.trim() && arr.indexOf(v) === i);
 
 const MainPage = () => {
   const [recommendation, setRecommendation] = useState(null);
@@ -21,12 +25,45 @@ const MainPage = () => {
     setRecommendation(null);
 
     try {
-      const response = await axios.post(`${API_BASE_URL}/api/recommend`, {
-        symptoms,
-      });
+      let lastErr = null;
+      let response = null;
+
+      for (const base of API_BASE_URLS) {
+        try {
+          response = await axios.post(
+            `${base}/api/recommend`,
+            { symptoms },
+            { timeout: 60000 }
+          );
+          break;
+        } catch (err) {
+          lastErr = err;
+          if (err?.response) {
+            throw err;
+          }
+        }
+      }
+
+      if (!response) {
+        throw lastErr || new Error("Network Error");
+      }
+
       setRecommendation(response.data);
     } catch (err) {
-      setError("Չհաջողվեց մշակել տվյալները։");
+      const backendDetail =
+        err?.response?.data?.detail ||
+        (typeof err?.response?.data === "string" ? err.response.data : null);
+      const networkMsg = err?.message;
+      const status = err?.response?.status;
+      const reason =
+        typeof backendDetail === "string" && backendDetail.trim()
+          ? backendDetail
+          : networkMsg || "անհայտ սխալ";
+      setError(
+        status
+          ? `Չհաջողվեց մշակել տվյալները (HTTP ${status}: ${reason})։`
+          : `Չհաջողվեց մշակել տվյալները (${reason})։ Ստուգեք՝ backend-ը աշխատո՞ւմ է 8000 պորտում։`
+      );
     } finally {
       setIsLoading(false);
     }
@@ -173,10 +210,8 @@ const MainPage = () => {
         </p>
       </footer>
 
-      <SOSButton />
     </div>
   );
 };
 
 export default MainPage;
-

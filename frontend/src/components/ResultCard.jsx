@@ -179,6 +179,30 @@ const ResultCard = ({ recommendation }) => {
                       </div>
                     </div>
                   )}
+
+                  {/* Doctor Directory */}
+                  {spec.doctors && spec.doctors.length > 0 && (
+                    <div className="mt-4 pt-4 border-t border-gray-200">
+                      <p className="text-sm font-semibold text-gray-700 mb-3">🏥 Առաջարկվող բժիշկներ</p>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        {spec.doctors.map((doc, dIdx) => (
+                          <div
+                            key={dIdx}
+                            className="rounded-xl border border-emerald-200 bg-gradient-to-br from-emerald-50/80 via-white to-teal-50/70 p-4 shadow-sm"
+                          >
+                            <p className="text-base font-bold text-emerald-900">{doc.name}</p>
+                            {doc.specialty && (
+                              <p className="text-xs font-semibold text-emerald-700 mt-1">{doc.specialty}</p>
+                            )}
+                            <div className="mt-3 space-y-1 text-sm text-gray-700">
+                              {doc.clinic && <p>Կլինիկա: {doc.clinic}</p>}
+                              {doc.phone && <p>Հեռ.: {doc.phone}</p>}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               );
             })}

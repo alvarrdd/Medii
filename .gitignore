@@ -1,0 +1,22 @@
+# Environment
+.env
+venv/
+
+# Python cache/build
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+
+# OS/IDE
+.DS_Store
+.idea/
+
+# Frontend build
+frontend/dist/
+
+# Large local presentation/material files
+ch6.txt
+ch6_extracted.txt
+*.mov

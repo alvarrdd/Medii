@@ -1,8 +1,10 @@
-"""Armenian-aware symptom preprocessor"""
+"""Armenian-first symptom preprocessor."""
 
-import re
+from __future__ import annotations
+
 import logging
-from typing import List, Dict, Tuple
+import re
+from typing import Dict, List, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -10,66 +12,95 @@ ARMENIAN_RANGE = r"\u0531-\u0587\u0589-\u058A"
 ENGLISH_RANGE = r"a-zA-Z"
 ALLOWED = rf"[{ARMENIAN_RANGE}{ENGLISH_RANGE}0-9 ,;՝՛։\s-]"
 
+
 class SymptomPreprocessor:
+    """
+    Normalize and lightly canonicalize symptom text.
+
+    Design choice:
+    - Keep Armenian text in Armenian (dataset is Armenian-heavy).
+    - Map common English symptom phrases to Armenian equivalents.
+    """
+
     def __init__(self):
         self._clean_pattern = re.compile(rf"[^{ALLOWED}]", flags=re.UNICODE | re.IGNORECASE)
+        self._arm_char_re = re.compile(rf"[{ARMENIAN_RANGE}]")
 
-        self.synonyms: Dict[str, str] = {
-            "headache": "headache", "head ache": "headache", "head pain": "headache",
-            "fever": "fever", "temperature": "fever", "high temp": "fever",
-            "cough": "cough", "coughing": "cough",
-            "sore throat": "sore throat", "throat pain": "sore throat",
-            "nausea": "nausea", "vomiting": "vomiting", "throwing up": "vomiting",
-            "diarrhea": "diarrhea", "loose stool": "diarrhea",
-            "chest pain": "chest pain", "shortness of breath": "shortness of breath",
-            "dizziness": "dizziness", "fatigue": "fatigue", "weakness": "weakness",
-
-            "գլխացավ": "headache", "գլխի ցավ": "headache", "գլուխս ցավում է": "headache",
-            "տենդ": "fever", "ջերմություն": "fever", "բարձր ջերմություն": "fever",
-            "հազ": "cough", "հազում եմ": "cough",
-            "կոկորդի ցավ": "sore throat", "կոկորդս ցավում է": "sore throat",
-            "սրտխառնոց": "nausea", "փսխում": "vomiting", "փսխում եմ": "vomiting",
-            "փորլուծ": "diarrhea", "փորհատ": "diarrhea", "որովայնի ցավ": "abdominal pain",
-            "կրծքավանդակի ցավ": "chest pain", "շնչառության դժվարություն": "shortness of breath",
-            "գլխապտույտ": "dizziness", "թուլություն": "weakness", "հոգնածություն": "fatigue",
+        # Phrase-level replacements (longest first when applied).
+        self._phrase_map: Dict[str, str] = {
+            # English -> Armenian
+            "shortness of breath": "շնչահեղձություն",
+            "difficulty breathing": "շնչառության դժվարություն",
+            "chest pain": "կրծքավանդակի ցավ",
+            "abdominal pain": "որովայնի ցավ",
+            "stomach pain": "որովայնի ցավ",
+            "sore throat": "կոկորդի ցավ",
+            "throat pain": "կոկորդի ցավ",
+            "head ache": "գլխացավ",
+            "head pain": "գլխացավ",
+            "headache": "գլխացավ",
+            "high fever": "բարձր ջերմություն",
+            "fever": "ջերմություն",
+            "temperature": "ջերմություն",
+            "coughing": "հազ",
+            "cough": "հազ",
+            "nausea": "սրտխառնոց",
+            "vomiting": "փսխում",
+            "throwing up": "փսխում",
+            "diarrhea": "լուծ",
+            "loose stool": "լուծ",
+            "dizziness": "գլխապտույտ",
+            "fatigue": "հոգնածություն",
+            "weakness": "թուլություն",
+            # Armenian normalization
+            "եւ": "և",
+            "գլխի ցավ": "գլխացավ",
+            "փորլուծ": "լուծ",
+            "կրծքավանդակային ցավ": "կրծքավանդակի ցավ",
         }
 
     def _normalize(self, text: str) -> str:
         if not text:
             return ""
-        text = text.strip().lower()
-        text = re.sub(r"\s+եւ\s+", " և ", text)
-        text = re.sub(r"եւ\s+", "և ", text)
-        text = re.sub(r"\s+եւ", " և", text)
-        text = self._clean_pattern.sub(" ", text)
-        text = re.sub(r"\s+", " ", text).strip()
-        return text
+        value = text.strip().lower()
+        value = self._clean_pattern.sub(" ", value)
+        value = re.sub(r"\s+", " ", value).strip()
+        return value
 
-    def _apply_synonyms(self, text: str) -> str:
-        words = text.split()
-        result = []
-        for w in words:
-            result.append(self.synonyms.get(w, w))
-        return " ".join(result)
+    def _apply_phrases(self, text: str) -> str:
+        if not text:
+            return text
+        out = text
+        for src in sorted(self._phrase_map.keys(), key=len, reverse=True):
+            dst = self._phrase_map[src]
+            out = re.sub(rf"\b{re.escape(src)}\b", dst, out)
+        return re.sub(r"\s+", " ", out).strip()
 
     def _split_symptoms(self, text: str) -> List[str]:
         if not text:
             return []
-        parts = re.split(r"[;,]|\s+(և|ու|և էլ|նաև)\s+", text)
+        parts = re.split(r"[;,]|\s+(և|ու|նաև|and|with)\s+", text)
         out: List[str] = []
         for p in parts:
-            p = p.strip()
-            if p and p not in ("և", "ու", "և էլ", "նաև"):
-                if len(p) >= 3:
-                    out.append(p)
+            if not isinstance(p, str):
+                continue
+            chunk = p.strip()
+            if not chunk or chunk in {"և", "ու", "նաև", "and", "with"}:
+                continue
+            if len(chunk) >= 2:
+                out.append(chunk)
         seen = set()
         return [x for x in out if not (x in seen or seen.add(x))]
 
     def preprocess(self, text: str) -> Tuple[str, List[str]]:
         normalized = self._normalize(text)
-        with_synonyms = self._apply_synonyms(normalized)
-        symptom_list = self._split_symptoms(with_synonyms)
-        joined = " և ".join(symptom_list) if symptom_list else with_synonyms
+        canonical = self._apply_phrases(normalized)
+        symptom_list = self._split_symptoms(canonical)
+        joined = " և ".join(symptom_list) if symptom_list else canonical
 
-        logger.debug(f"Preprocess → joined: {joined} | list: {symptom_list}")
+        # Keep output Armenian when possible for Armenian dataset match.
+        if not self._arm_char_re.search(joined):
+            joined = self._apply_phrases(joined)
+
+        logger.debug("Preprocess -> joined: %s | list: %s", joined, symptom_list)
         return joined, symptom_list

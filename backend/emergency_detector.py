@@ -94,3 +94,15 @@ class EmergencyDetector:
             
         text = message.strip().lower()
         return any(phrase in text for phrase in self.keywords)
+
+    def detect(self, message: str) -> dict:
+        """Structured emergency detection result for pipeline orchestration."""
+        flagged = self.is_emergency(message)
+        return {
+            "is_emergency": flagged,
+            "message": (
+                "Հայտնաբերված են վտանգավոր ախտանիշներ։ Խնդրում ենք անմիջապես դիմել շտապ օգնության։"
+                if flagged
+                else "Emergency criteria not detected."
+            ),
+        }

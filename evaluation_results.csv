@@ -1,0 +1,4 @@
+Experiment,Top-1 Relevance,Top-3 Relevance,Specialist Correctness,Avg Latency (ms)
+baseline,10.0,20.0,60.0,233.9
+exp1,10.0,20.0,70.0,26.2
+exp2,20.0,40.0,80.0,58.5
