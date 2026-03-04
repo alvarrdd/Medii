@@ -249,6 +249,21 @@ const ResultCard = ({ recommendation }) => {
         </div>
       )}
 
+      <div className="medical-disclaimer">
+        <div className="flex items-start gap-3">
+          <span className="text-xl" aria-hidden="true">⚕️</span>
+          <div>
+            <p className="font-bold text-orange-900 mb-1">Բժշկական ծանուցում</p>
+            <p className="text-sm text-orange-900/90 leading-relaxed">
+              Medi-ի արդյունքները նախատեսված են միայն նախնական տեղեկատվական ուղղորդման համար և
+              չեն փոխարինում բժշկի խորհրդատվությանը, ախտորոշմանը կամ բուժմանը։ Եթե ախտանիշները
+              ուժեղանում են, երկար են տևում կամ կա անհանգստացնող վիճակ, անմիջապես դիմեք
+              որակավորված բժշկի կամ շտապ օգնության ծառայությանը։
+            </p>
+          </div>
+        </div>
+      </div>
+
     </div>
   )
 }

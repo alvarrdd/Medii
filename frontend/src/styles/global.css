@@ -11,6 +11,12 @@
     @apply bg-gradient-to-r from-purple-500 to-purple-600 text-white font-bold rounded-xl hover:from-purple-600 hover:to-purple-700 transition-all duration-300 shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed;
   }
 
+  .medical-disclaimer {
+    @apply rounded-2xl border p-5 shadow-sm;
+    background: linear-gradient(135deg, rgba(255, 248, 240, 0.95), rgba(255, 237, 213, 0.85));
+    border-color: rgba(251, 146, 60, 0.35);
+  }
+
   .fade-in {
     animation: fadeIn 0.5s ease-in;
   }
