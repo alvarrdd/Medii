@@ -24,6 +24,8 @@ class Settings:
 
     # Default to MiniLM as per project description; allow override via env EMBEDDING_MODEL
     embedding_model_name: str = os.getenv("EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
+    embedding_device: str = os.getenv("EMBEDDING_DEVICE", "cpu")
+    enable_embeddings: bool = os.getenv("ENABLE_EMBEDDINGS", "0").strip().lower() in {"1", "true", "yes", "on"}
     rag_top_k: int = int(os.getenv("RAG_TOP_K", "3"))
     max_context_chars: int = int(os.getenv("MAX_CONTEXT_CHARS", "2800"))
     similarity_threshold: float = float(os.getenv("SIMILARITY_THRESHOLD", "0.30"))

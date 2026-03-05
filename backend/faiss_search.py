@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import math
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -42,6 +43,8 @@ class SymptomDiseaseIndexer:
 
         self._ctx_chunks: List[str] = []
         self._ctx_chunk_owner: List[str] = []
+        self._token_df: Dict[str, int] = {}
+        self._symptom_token_sets: List[set[str]] = []
 
         self._initialized = False
 
@@ -55,14 +58,28 @@ class SymptomDiseaseIndexer:
         if self._initialized:
             return
 
+        if not getattr(self._settings, "enable_embeddings", False):
+            logger.info("Embeddings disabled (ENABLE_EMBEDDINGS=0); using lexical mode")
+            self._model = None
+            self._build_lexical_only()
+            self._initialized = True
+            return
+
         try:
             logger.info("Loading embedding model: %s", self._settings.embedding_model_name)
             from sentence_transformers import SentenceTransformer
 
-            self._model = SentenceTransformer(
-                self._settings.embedding_model_name,
-                local_files_only=True,
-            )
+            try:
+                self._model = SentenceTransformer(
+                    self._settings.embedding_model_name,
+                    device=getattr(self._settings, "embedding_device", "cpu"),
+                    local_files_only=True,
+                )
+            except TypeError:
+                self._model = SentenceTransformer(
+                    self._settings.embedding_model_name,
+                    device=getattr(self._settings, "embedding_device", "cpu"),
+                )
             self._build_with_embeddings()
         except Exception as e:
             logger.warning("Embedding init failed (%s); using lexical fallback", e)
@@ -216,8 +233,8 @@ class SymptomDiseaseIndexer:
         self._symptoms = symptoms
         self._disease_of_row = diseases
         self._desc_by_disease = desc
-        self._ctx_chunks = []
-        self._ctx_chunk_owner = []
+        self._prepare_lexical_stats()
+        self._build_context_docs()
         logger.info("Lexical mode initialized with %s rows", len(self._symptoms))
 
     def _build_with_embeddings(self) -> None:
@@ -243,21 +260,11 @@ class SymptomDiseaseIndexer:
         self._symptoms = symptoms
         self._disease_of_row = diseases
         self._desc_by_disease = desc
+        self._prepare_lexical_stats()
 
-        sample_by_disease: Dict[str, List[str]] = {}
-        for s, d in zip(symptoms, diseases):
-            sample_by_disease.setdefault(d, []).append(s)
-
-        ctx_docs: List[str] = []
-        ctx_owner: List[str] = []
-        for disease, examples in sample_by_disease.items():
-            body = f"{disease}. "
-            if disease in desc and desc[disease]:
-                body += desc[disease] + " "
-            body += "Օրինակ ախտանշաններ: " + "; ".join(examples[:4])
-            for chunk in self._chunk_text(body):
-                ctx_docs.append(chunk)
-                ctx_owner.append(disease)
+        self._build_context_docs()
+        ctx_docs = self._ctx_chunks
+        ctx_owner = self._ctx_chunk_owner
 
         if ctx_docs:
             cemb = self._model.encode(
@@ -278,6 +285,37 @@ class SymptomDiseaseIndexer:
         self._save_cache(fingerprint)
         logger.info("Built FAISS indices (symptoms=%s, ctx=%s)", len(self._symptoms), len(self._ctx_chunks))
 
+    def _prepare_lexical_stats(self) -> None:
+        self._token_df = {}
+        self._symptom_token_sets = []
+        for s in self._symptoms:
+            toks = set(self._tokenize(s))
+            self._symptom_token_sets.append(toks)
+            for t in toks:
+                self._token_df[t] = self._token_df.get(t, 0) + 1
+
+    def _idf(self, token: str) -> float:
+        n = max(1, len(self._symptoms))
+        df = self._token_df.get(token, 0)
+        return math.log((n + 1.0) / (df + 1.0)) + 1.0
+
+    def _build_context_docs(self) -> None:
+        sample_by_disease: Dict[str, List[str]] = {}
+        for s, d in zip(self._symptoms, self._disease_of_row):
+            sample_by_disease.setdefault(d, []).append(s)
+        ctx_docs: List[str] = []
+        ctx_owner: List[str] = []
+        for disease, examples in sample_by_disease.items():
+            body = f"{disease}. "
+            if disease in self._desc_by_disease and self._desc_by_disease[disease]:
+                body += self._desc_by_disease[disease] + " "
+            body += "Օրինակ ախտանշաններ: " + "; ".join(examples[:4])
+            for chunk in self._chunk_text(body):
+                ctx_docs.append(chunk)
+                ctx_owner.append(disease)
+        self._ctx_chunks = ctx_docs
+        self._ctx_chunk_owner = ctx_owner
+
     def _tokenize(self, text: str) -> List[str]:
         return self._TOKEN_RE.findall((text or "").lower())
 
@@ -291,15 +329,19 @@ class SymptomDiseaseIndexer:
             return 0.0
         q_set = set(q_tokens)
         c_set = set(c_tokens)
-        inter = len(q_set & c_set)
+        common = q_set & c_set
+        inter = len(common)
         if inter == 0:
             return 0.0
-        jacc = inter / max(1, len(q_set | c_set))
-        cov = inter / max(1, len(q_set))
+        w_common = sum(self._idf(t) for t in common)
+        w_q = sum(self._idf(t) for t in q_set)
+        w_union = sum(self._idf(t) for t in (q_set | c_set))
+        jacc = w_common / max(1e-9, w_union)
+        cov = w_common / max(1e-9, w_q)
         q_text = " ".join(q_tokens)
         c_text = " ".join(c_tokens)
-        phrase_bonus = 0.15 if (q_text in c_text or c_text in q_text) else 0.0
-        return float(min(1.0, 0.55 * cov + 0.45 * jacc + phrase_bonus))
+        phrase_bonus = 0.18 if (q_text in c_text or c_text in q_text) else 0.0
+        return float(min(1.0, 0.60 * cov + 0.40 * jacc + phrase_bonus))
 
     def predict(self, query: str, top_k: int) -> List[DiseaseCandidate]:
         self._ensure_initialized()
@@ -308,17 +350,28 @@ class SymptomDiseaseIndexer:
 
         # Lexical fallback mode
         if self._model is None or self._index is None:
-            agg: Dict[str, Tuple[str, float]] = {}
+            agg: Dict[str, Dict[str, object]] = {}
             for symptom, disease in zip(self._symptoms, self._disease_of_row):
                 score = self._lexical_similarity(query, symptom)
                 if score > 0.0:
                     key = self._norm_disease(disease)
-                    prev_name, prev_score = agg.get(key, (disease, float("-inf")))
-                    keep_name = prev_name if len(prev_name) >= len(disease) else disease
-                    agg[key] = (keep_name, max(prev_score, score))
+                    rec = agg.setdefault(key, {"name": disease, "scores": []})
+                    if len(str(rec["name"])) < len(disease):
+                        rec["name"] = disease
+                    scores = rec["scores"]
+                    assert isinstance(scores, list)
+                    scores.append(float(score))
+            ranked: List[Tuple[float, str]] = []
+            for rec in agg.values():
+                scores = sorted(rec["scores"], reverse=True)
+                mx = scores[0]
+                avg3 = sum(scores[:3]) / min(3, len(scores))
+                support = min(1.0, len(scores) / 3.0)
+                final = min(1.0, 0.65 * mx + 0.25 * avg3 + 0.10 * support)
+                ranked.append((final, str(rec["name"])))
             out = [
                 DiseaseCandidate(name=name, score=float(score), description=self._desc_by_disease.get(name))
-                for _, (name, score) in sorted(agg.items(), key=lambda x: x[1][1], reverse=True)
+                for score, name in sorted(ranked, key=lambda x: x[0], reverse=True)
             ]
             return out[: max(1, top_k)]
 
@@ -358,8 +411,32 @@ class SymptomDiseaseIndexer:
 
     def retrieve_context(self, query: str, top_k: int, max_chars: int) -> str:
         self._ensure_initialized()
-        if not query or not self._ctx_chunks or self._ctx_index is None or self._model is None:
+        if not query or not self._ctx_chunks:
             return ""
+        if self._ctx_index is None or self._model is None:
+            scored: List[Tuple[float, int]] = []
+            for i, ch in enumerate(self._ctx_chunks):
+                sc = self._lexical_similarity(query, ch)
+                if sc > 0.0:
+                    scored.append((sc, i))
+            scored.sort(key=lambda x: x[0], reverse=True)
+            out: List[str] = []
+            total = 0
+            used_owner: set[str] = set()
+            for _, idx in scored[: max(1, top_k * 3)]:
+                owner = self._ctx_chunk_owner[idx] if idx < len(self._ctx_chunk_owner) else ""
+                if owner and owner in used_owner and len(used_owner) >= top_k:
+                    continue
+                ch = self._ctx_chunks[idx]
+                if total + len(ch) + 2 > max_chars:
+                    break
+                out.append(ch)
+                total += len(ch) + 2
+                if owner:
+                    used_owner.add(owner)
+                if len(out) >= top_k:
+                    break
+            return "\n\n".join(out)
         try:
             q = self._model.encode(
                 [query],

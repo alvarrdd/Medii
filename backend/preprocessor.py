@@ -58,6 +58,20 @@ class SymptomPreprocessor:
             "փորլուծ": "լուծ",
             "կրծքավանդակային ցավ": "կրծքավանդակի ցավ",
         }
+        # Spoken Armenian body-part variants -> canonical medical form.
+        self._bodypart_map: Dict[str, str] = {
+            "ատամ": "ատամի",
+            "ծունկ": "ծնկի",
+            "ծնկ": "ծնկի",
+            "գլուխ": "գլխի",
+            "փոր": "որովայնի",
+            "որովայն": "որովայնի",
+            "մեջք": "մեջքի",
+            "կոկորդ": "կոկորդի",
+            "ականջ": "ականջի",
+            "աչք": "աչքի",
+            "սիրտ": "կրծքավանդակի",
+        }
 
     def _normalize(self, text: str) -> str:
         if not text:
@@ -92,8 +106,28 @@ class SymptomPreprocessor:
         seen = set()
         return [x for x in out if not (x in seen or seen.add(x))]
 
+    def _normalize_spoken_pain(self, text: str) -> str:
+        if not text:
+            return text
+        out = text
+        # e.g. "ատամս ցավում է", "ծունկը ցավումա", "գլուխս ցավում է"
+        for src, dst in self._bodypart_map.items():
+            out = re.sub(
+                rf"\b{re.escape(src)}(?:ը|ս|ն)?\s+ցավում\s*(?:է|ա)?\b",
+                f"{dst} ցավ",
+                out,
+            )
+            out = re.sub(
+                rf"\b{re.escape(src)}(?:ը|ս|ն)?\s*ցավ\b",
+                f"{dst} ցավ",
+                out,
+            )
+        out = re.sub(r"\bցավը\b", "ցավ", out)
+        return re.sub(r"\s+", " ", out).strip()
+
     def preprocess(self, text: str) -> Tuple[str, List[str]]:
         normalized = self._normalize(text)
+        normalized = self._normalize_spoken_pain(normalized)
         canonical = self._apply_phrases(normalized)
         symptom_list = self._split_symptoms(canonical)
         joined = " և ".join(symptom_list) if symptom_list else canonical

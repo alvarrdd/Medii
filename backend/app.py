@@ -255,15 +255,12 @@ async def recommend(payload: SymptomRequest) -> RecommendationResponse:
         # 4. Map diseases to specialist (weighted by disease scores)
         specialist_name = "Թերապևտ / Ընտանեկան բժիշկ"
         if disease_names:
-            spec_map = components["specialist_mapper"].recommend_all(disease_names)
-            weighted = {}
-            for d in diseases_model:
-                sp = spec_map.get(d.name_hy, specialist_name)
-                weighted[sp] = weighted.get(sp, 0.0) + float(d.match_score)
-            if weighted:
-                specialist_name = max(weighted.items(), key=lambda x: x[1])[0]
-            else:
-                specialist_name = components["specialist_mapper"].recommend(disease_names)
+            top_disease = diseases_model[0]
+            if float(top_disease.match_score) >= 0.42:
+                specialist_name = components["specialist_mapper"].recommend_all([top_disease.name_hy]).get(
+                    top_disease.name_hy,
+                    specialist_name,
+                )
         
         # 5. Retrieve RAG context from FAISS context index built from CSV
         context = ""
