@@ -4,10 +4,7 @@ Production-ready medical AI assistant with RAG and LLM integration.
  
 ## 🎥 Demo
 
-<video width="100%" controls playsinline>
-  <source src="https://github.com/user-attachments/assets/f4250917-dc2e-4206-8874-be1518fbcf8b" type="video/mp4">
-  Your browser does not support the video tag.
-</video>
+https://github.com/user-attachments/assets/f4250917-dc2e-4206-8874-be1518fbcf8b
 
 ## Installation
 
