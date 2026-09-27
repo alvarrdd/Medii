@@ -4,10 +4,7 @@ Production-ready medical AI assistant with RAG and LLM integration.
  
 ## 🎥 Demo
 
-<video width="100%" controls>
-  <source src="https://raw.githubusercontent.com/alvarrdd/Medii/main/0914%281%29.mov" type="video/quicktime">
-  Your browser does not support the video tag.
-</video>
+[![Medi Demo](./demo-preview.gif)](./0914%281%29.mov)
 
 ## Installation
 
