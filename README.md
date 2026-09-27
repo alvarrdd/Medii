@@ -1,29 +1,9 @@
 # Medi - AI Medical Assistant
 
 Production-ready medical AI assistant with RAG and LLM integration.
+ 
 
-## 🔧 Fixed Issues
-
-### Backend Fixes:
-1. ✅ Fixed segmentation fault - lazy model initialization
-2. ✅ Fixed import errors - proper module structure
-3. ✅ Fixed FAISS loading - safe initialization with error handling
-4. ✅ Fixed CORS - comprehensive origin list
-5. ✅ Fixed environment variables - proper dotenv loading
-6. ✅ Fixed model downloads - show_progress_bar=False to prevent crashes
-7. ✅ Added proper logging throughout
-8. ✅ Added lifespan manager for component initialization
-9. ✅ Fixed circular imports - direct imports only
-10. ✅ Added health check endpoint
-
-### Frontend Fixes:
-1. ✅ Fixed API client with proper error handling
-2. ✅ Fixed Vite proxy configuration
-3. ✅ Added environment variable support
-4. ✅ Added connection status indicator
-5. ✅ Added comprehensive error messages
-
-## 📦 Installation
+## Installation
 
 ### Backend Setup
 
@@ -74,7 +54,7 @@ cp .env.example .env
 npm run dev
 ```
 
-## 📁 Required Data Files
+## Required Data Files
 
 Create these CSV files in `backend/data/`:
 
@@ -93,7 +73,7 @@ keywords,specialist
 "cough,breathing",Pulmonologist
 ```
 
-## 🚀 Running the Application
+## Running the Application
 
 ### Development Mode
 
@@ -128,7 +108,7 @@ npm run build
 npm run preview
 ```
 
-## 🔍 Testing
+## Testing
 
 ### Backend Health Check
 ```bash
@@ -142,7 +122,7 @@ curl -X POST http://localhost:8000/analyze \
   -d '{"message": "I have a headache and feel tired"}'
 ```
 
-## 🐛 Troubleshooting
+## Troubleshooting
 
 ### Segmentation Fault
 - **Fixed**: Models now load lazily on first request
@@ -180,7 +160,7 @@ GEMINI_API_KEY=your_key_here
 VITE_API_URL=http://localhost:8000
 ```
 
-## 🏗️ Architecture
+## Architecture
 
 ```
 medi-project/
@@ -221,7 +201,7 @@ medi-project/
 - [x] Emergency detection
 - [x] Graceful fallbacks
 
-## 📚 API Documentation
+## API Documentation
 
 Interactive API docs available at: http://localhost:8000/docs
 
@@ -240,7 +220,7 @@ Interactive API docs available at: http://localhost:8000/docs
 - Body: `{"message": "symptom description"}`
 - Returns: `{"emergency": bool, "specialist": string, "response": string}`
 
-## 🔐 Security Notes
+## Security Notes
 
 - Never commit .env files
 - Keep API keys secure
