@@ -2,6 +2,9 @@
 
 Production-ready medical AI assistant with RAG and LLM integration.
  
+## 🎥 Demo
+
+![Medi Demo](./0914(1).mov)
 
 ## Installation
 
