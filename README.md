@@ -4,7 +4,10 @@ Production-ready medical AI assistant with RAG and LLM integration.
  
 ## 🎥 Demo
 
-[🎥 Watch demo video](./0914%281%29.mov)
+<video width="100%" controls>
+  <source src="https://raw.githubusercontent.com/alvarrdd/Medii/main/0914%281%29.mov" type="video/quicktime">
+  Your browser does not support the video tag.
+</video>
 
 ## Installation
 
@@ -172,7 +175,7 @@ medi-project/
 │   ├── app.py              # Main FastAPI app
 │   ├── config.py           # Configuration
 │   ├── emergency_detector.py
-│   ├── specialist_mapper.py
+│   ��── specialist_mapper.py
 │   ├── rag_retriever.py    # FAISS + embeddings
 │   ├── recommendation_engine.py  # Gemini LLM
 │   ├── model_evaluator.py
